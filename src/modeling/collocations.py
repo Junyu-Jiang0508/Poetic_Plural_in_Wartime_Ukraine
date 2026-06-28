@@ -66,12 +66,14 @@ import numpy as np
 import pandas as pd
 
 from utils.stats_common import bh_adjust
-from utils.workspace import canonical_pronoun_annotation_csv, prepare_analysis_environment
+from utils.workspace import canonical_collocations_csv, prepare_analysis_environment
+from utils.public_data import load_shipped_collocations
 
 ROOT = prepare_analysis_environment(__file__, matplotlib_backend="Agg")
 log = logging.getLogger(__name__)
 
-DEFAULT_INPUT = canonical_pronoun_annotation_csv(ROOT)
+DEFAULT_INPUT = ROOT / "data" / "Annotated_Source" / "pronoun_annotation_v2.csv"
+DEFAULT_COLLOCATION_TABLE = canonical_collocations_csv(ROOT)
 DEFAULT_OUTPUT = ROOT / "outputs" / "02_modeling_pronoun_collocations"
 
 
@@ -527,10 +529,96 @@ def _plot_scatter(diff: pd.DataFrame, out_dir: Path) -> None:
         plt.close(fig)
 
 
+def _run_from_shipped_table(table_path: Path, out_dir: Path, *, min_coocc_for_diff: int) -> None:
+    """Recompute collocation statistics from the public aggregate count table."""
+    coll = load_shipped_collocations(table_path)
+    coll = coll.rename(columns={"cooccurrence_count": "cooccurrence"})
+    coll["cooccurrence"] = coll["cooccurrence"].astype(int)
+    if "deprel" not in coll.columns:
+        coll["deprel"] = "merged"
+
+    cell_totals = (
+        coll.groupby(["language", "period", "cell"], sort=False)["cooccurrence"]
+        .sum()
+        .rename("F_cell")
+        .reset_index()
+    )
+    head_totals = (
+        coll.groupby(["language", "period", "head_lemma"], sort=False)["cooccurrence"]
+        .sum()
+        .rename("F_head")
+        .reset_index()
+    )
+    slice_totals = (
+        coll.groupby(["language", "period"], sort=False)["cooccurrence"]
+        .sum()
+        .rename("F_slice")
+        .reset_index()
+    )
+    coll = coll.merge(cell_totals, on=["language", "period", "cell"], how="left")
+    coll = coll.merge(head_totals, on=["language", "period", "head_lemma"], how="left")
+    coll = coll.merge(slice_totals, on=["language", "period"], how="left")
+
+    eps = 1e-12
+    coll["log_dice"] = 14.0 + np.log2(
+        (2.0 * coll["cooccurrence"]) / (coll["F_cell"] + coll["F_head"] + eps)
+    )
+    p_w_given_cell = coll["cooccurrence"] / (coll["F_cell"] + eps)
+    p_w = coll["F_head"] / (coll["F_slice"] + eps)
+    coll["pmi"] = np.log2((p_w_given_cell + eps) / (p_w + eps))
+
+    a = coll["cooccurrence"].astype(float)
+    b = coll["F_cell"].astype(float) - a
+    c = coll["F_head"].astype(float) - a
+    d = coll["F_slice"].astype(float) - a - b - c
+    n = a + b + c + d
+
+    def _xlogx(x: pd.Series, ref: pd.Series) -> pd.Series:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where((x > 0) & (ref > 0), np.log(x / ref), 0.0)
+        return x * ratio
+
+    expected_a = (a + b) * (a + c) / n.replace(0, np.nan)
+    expected_b = (a + b) * (b + d) / n.replace(0, np.nan)
+    expected_c = (c + d) * (a + c) / n.replace(0, np.nan)
+    expected_d = (c + d) * (b + d) / n.replace(0, np.nan)
+    coll["g2"] = 2.0 * (
+        _xlogx(a, expected_a)
+        + _xlogx(b, expected_b)
+        + _xlogx(c, expected_c)
+        + _xlogx(d, expected_d)
+    ).replace([np.inf, -np.inf], np.nan)
+
+    coll.to_csv(out_dir / "collocations_by_cell_period.csv", index=False)
+
+    diff = _period_differential(coll)
+    diff_filtered = diff.loc[
+        (diff["cooc_2014_2021"] + diff["cooc_post_2022"]) >= min_coocc_for_diff
+    ].copy()
+    diff_filtered.to_csv(out_dir / "differential_collocations.csv", index=False)
+
+    top_rows: list[pd.DataFrame] = []
+    for (_, _, deprel), grp in diff_filtered.groupby(["language", "cell", "deprel"]):
+        grp = grp.assign(abs_delta_pmi=grp["delta_pmi"].abs())
+        top_rows.append(grp.sort_values("abs_delta_pmi", ascending=False).head(25))
+    if top_rows:
+        pd.concat(top_rows, ignore_index=True).to_csv(
+            out_dir / "differential_collocations_top.csv", index=False
+        )
+    _plot_scatter(diff_filtered, out_dir)
+    log.info("Wrote collocation outputs from shipped table to %s", out_dir)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Dependency-parsed pronoun collocations.")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument(
+        "--collocation-table",
+        type=Path,
+        default=DEFAULT_COLLOCATION_TABLE,
+        help="Public aggregate table (default: data/collocations_pronoun_head.csv).",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
         "--rebuild-cache",
@@ -550,6 +638,12 @@ def main() -> None:
 
     out_dir = args.output.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    shipped_path = args.collocation_table.resolve()
+    if shipped_path.is_file():
+        _run_from_shipped_table(shipped_path, out_dir, min_coocc_for_diff=args.min_coocc_for_diff)
+        return
+
     cache_path = out_dir / "parse_cache" / "parses.jsonl"
 
     df = pd.read_csv(args.input, low_memory=False, on_bad_lines="skip")

@@ -45,15 +45,17 @@ from utils.finite_verb_exposure import resolve_finite_verb_counts_for_modeling
 from utils.poem_cell_counts import build_poem_cell_table_with_exposure
 from utils.pronoun_encoding import PRIMARY_GLM_CELLS, pronoun_class_sixway_column
 from utils.stats_common import bh_adjust, normalize_bool_flag, period_three_way
-from utils.workspace import canonical_pronoun_annotation_csv, prepare_analysis_environment
+from utils.workspace import canonical_poem_cell_counts_csv, prepare_analysis_environment
+from utils.public_data import is_shipped_poem_table, load_shipped_poem_table
 
 ROOT = prepare_analysis_environment(__file__, matplotlib_backend="Agg")
 
 log = logging.getLogger(__name__)
 
-DEFAULT_INPUT = canonical_pronoun_annotation_csv(ROOT)
+DEFAULT_POEM_TABLE = canonical_poem_cell_counts_csv(ROOT)
+DEFAULT_INPUT = DEFAULT_POEM_TABLE
 DEFAULT_LAYER0 = ROOT / "data" / "To_run" / "00_filtering" / "layer0_poems_one_per_row.csv"
-DEFAULT_ROSTER = ROOT / "outputs" / "03_reporting_roster_freeze" / "roster_v1_frozen.csv"
+DEFAULT_ROSTER = ROOT / "data" / "roster_v1_frozen.csv"
 DEFAULT_OUTPUT = ROOT / "outputs" / "02_modeling_q1_per_cell_glm"
 
 PERIOD_P1 = "P1_2014_2021"
@@ -160,6 +162,8 @@ def load_roster_authors(roster_path: Path | None) -> set[str] | None:
     if roster_path is None or not roster_path.is_file():
         return None
     r = pd.read_csv(roster_path, low_memory=False)
+    if "author_id" in r.columns and "author" not in r.columns:
+        r = r.assign(author=r["author_id"].astype(str))
     if "included" not in r.columns or "author" not in r.columns:
         return None
     return set(r.loc[r["included"].astype(bool), "author"].astype(str).tolist())
@@ -449,7 +453,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Q1: poem-level 1st/2nd-person per-cell GLMs with Ukrainian/Russian/pooled strata."
     )
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument(
+        "--poem-table",
+        type=Path,
+        default=DEFAULT_POEM_TABLE,
+        help="Precomputed poem-level count table (default: data/pronoun_cell_counts.csv).",
+    )
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT,
+                        help="Legacy alias for sentence-level rebuild path (private pipeline only).")
     parser.add_argument("--layer0", type=Path, default=DEFAULT_LAYER0)
     parser.add_argument("--roster", type=Path, default=DEFAULT_ROSTER)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -506,22 +517,29 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     audit_dir = out_dir / "language_stratum_audit"
 
-    filtered = load_and_filter(
-        args.input.resolve(),
-        args.layer0.resolve() if args.layer0 else None,
-        language_audit_dir=audit_dir,
-    )
-    roster_authors = load_roster_authors(args.roster.resolve() if args.roster else None)
-    fv_df = resolve_finite_verb_counts_for_modeling(
-        ROOT,
-        exposure_type=args.exposure_type,
-        finite_verb_csv=args.finite_verb_counts,
-    )
-    poem_full = build_poem_cell_table_with_exposure(
-        filtered,
-        finite_verb_df=fv_df,
-        discontinuity_manifest_path=out_dir / "stanza_index_discontinuities.csv",
-    )
+    poem_table_path = args.poem_table.resolve()
+    if poem_table_path.is_file() and is_shipped_poem_table(poem_table_path):
+        poem_full = load_shipped_poem_table(poem_table_path)
+        roster_authors = load_roster_authors(args.roster.resolve() if args.roster else None)
+        if roster_authors is not None:
+            poem_full = poem_full[poem_full["author"].astype(str).isin(roster_authors)].copy()
+    else:
+        filtered = load_and_filter(
+            args.input.resolve(),
+            args.layer0.resolve() if args.layer0 else None,
+            language_audit_dir=audit_dir,
+        )
+        roster_authors = load_roster_authors(args.roster.resolve() if args.roster else None)
+        fv_df = resolve_finite_verb_counts_for_modeling(
+            ROOT,
+            exposure_type=args.exposure_type,
+            finite_verb_csv=args.finite_verb_counts,
+        )
+        poem_full = build_poem_cell_table_with_exposure(
+            filtered,
+            finite_verb_df=fv_df,
+            discontinuity_manifest_path=out_dir / "stanza_index_discontinuities.csv",
+        )
     build_exposure_diagnostics(poem_full).to_csv(out_dir / "q1_exposure_diagnostics.csv", index=False)
 
     frames: list[pd.DataFrame] = []

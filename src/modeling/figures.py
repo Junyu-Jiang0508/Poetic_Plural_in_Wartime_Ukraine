@@ -116,14 +116,14 @@ REGION_LABEL = {
 
 # Public repo: selection uses opaque author_id codes only (no names or bios).
 POET_SELECTION: list[dict] = [
-    {"author": "A19", "situation": "stayed", "role": "riser",  "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
-    {"author": "A30", "situation": "stayed", "role": "faller", "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
-    {"author": "A89", "situation": "stayed", "role": "riser",  "case_study": True, "bio": "Remained in Ukraine · Russian-language"},
-    {"author": "A74", "situation": "stayed", "role": "faller", "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
-    {"author": "A10", "situation": "left",   "role": "riser",  "case_study": True, "bio": "Left Ukraine (exile) · Russian-language"},
-    {"author": "A15", "situation": "left",   "role": "faller", "case_study": True, "bio": "Left Ukraine (exile) · Ukrainian-language"},
-    {"author": "A93", "situation": "stayed", "role": "riser",  "case_study": False, "bio": ""},
-    {"author": "A38", "situation": "left",   "role": "flat",   "case_study": False, "bio": ""},
+    {"author": "A13", "situation": "stayed", "role": "riser",  "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
+    {"author": "A08", "situation": "stayed", "role": "faller", "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
+    {"author": "A17", "situation": "stayed", "role": "riser",  "case_study": True, "bio": "Remained in Ukraine · Russian-language"},
+    {"author": "A12", "situation": "stayed", "role": "faller", "case_study": True, "bio": "Remained in Ukraine · Ukrainian-language"},
+    {"author": "A21", "situation": "left",   "role": "riser",  "case_study": True, "bio": "Left Ukraine (exile) · Russian-language"},
+    {"author": "A14", "situation": "left",   "role": "faller", "case_study": True, "bio": "Left Ukraine (exile) · Ukrainian-language"},
+    {"author": "A11", "situation": "stayed", "role": "riser",  "case_study": False, "bio": ""},
+    {"author": "A05", "situation": "left",   "role": "flat",   "case_study": False, "bio": ""},
 ]
 
 # fig5 case studies, in display order (rows = situation, left col = riser, right = faller).
