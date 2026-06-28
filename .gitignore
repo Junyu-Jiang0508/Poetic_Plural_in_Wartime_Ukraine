@@ -1,0 +1,24 @@
+# secrets
+.env
+.env.local
+
+# NEVER ship anything that maps an anonymized id back to a real poet
+**/name_crosswalk.csv
+**/author_covariates*.csv
+**/*_provenance_audit.csv
+data/raw/
+data/poems/
+*_with_names.csv
+
+# build / generated
+outputs/
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+*.aux
+*.log
+*.bbl
+*.blg
+*.out
